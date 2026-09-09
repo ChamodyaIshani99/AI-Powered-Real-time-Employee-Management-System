@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
-import { inngest } from "../inngest/client.js";
+import { generateInsightDirect } from "../inngest/functions/generateInsight.js";
 import { AiInsight } from "../models/AiInsight.js";
 
 // ---------------------------------------------------------------------------
@@ -62,16 +62,29 @@ export async function generateInsight(
     period: period.trim(),
   });
 
-  // Dispatch Inngest event for async generation.
-  await inngest.send({
-    name: "ai/insight-generate",
-    data: { insightId: insight._id.toString() },
-  });
+ insight.status = "generating";
+await insight.save();
 
-  insight.status = "generating";
+try {
+  await generateInsightDirect(insight._id.toString());
+
+  const completedInsight = await AiInsight.findById(insight._id)
+    .populate("createdBy", "name")
+    .populate("department", "name");
+
+  res.status(201).json({
+    insight: completedInsight?.toJSON(),
+  });
+} catch (error) {
+  insight.status = "failed";
   await insight.save();
 
-  res.status(201).json({ insight: insight.toJSON() });
+  console.error("AI insight generation failed:", error);
+
+  res.status(500).json({
+    error: "Failed to generate AI insight",
+  });
+}
 }
 
 /**

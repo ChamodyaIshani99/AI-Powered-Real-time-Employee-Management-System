@@ -4,7 +4,7 @@ import { logActivity } from "../lib/activityLog.js";
 import { notify } from "../lib/notifications.js";
 import { parsePagination, searchRegex } from "../lib/pagination.js";
 import { pushToUsers, createEvent } from "../lib/sse.js";
-import { inngest } from "../inngest/index.js";
+import { generateReviewDirect } from "../inngest/functions/generateReview.js";
 import {
   PerformanceReview,
   type IPerformanceReview,
@@ -212,12 +212,26 @@ export async function createReview(req: Request, res: Response): Promise<void> {
   );
 
   // Trigger AI generation in the background via Inngest.
-  await inngest.send({
-    name: "performance/generate-review",
-    data: { reviewId: review._id.toString() },
-  });
+  try {
+  await generateReviewDirect(review._id.toString());
+} catch (error) {
+  console.error("AI performance review generation failed:", error);
 
-  res.status(201).json({ review: review.toJSON() });
+  await PerformanceReview.findByIdAndDelete(review._id);
+
+  res.status(500).json({
+    error: "Failed to generate AI performance review",
+  });
+  return;
+}
+
+  const completedReview = await PerformanceReview.findById(review._id)
+  .populate("employee", "name email department")
+  .populate("reviewer", "name email");
+
+res.status(201).json({
+  review: completedReview?.toJSON(),
+});
 }
 
 // ---------------------------------------------------------------------------

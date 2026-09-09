@@ -1,61 +1,67 @@
-import { inngest } from "../client.js";
 
 // ---------------------------------------------------------------------------
 // Gemini API helper
 // ---------------------------------------------------------------------------
 
-interface GeminiInsightResult {
+interface AIInsightResult {
   title: string;
   summary: string;
   content: string;
 }
 
-/**
- * Calls the Gemini API to generate organizational insights.
- * Returns parsed JSON or throws on failure.
- */
-async function callGemini(prompt: string): Promise<GeminiInsightResult> {
-  const apiKey = process.env.GEMINI_API_KEY;
+async function callOpenAI(prompt: string): Promise<AIInsightResult> {
+  const apiKey = process.env.OPENAI_API_KEY;
+
   if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is not configured");
+    throw new Error("OPENAI_API_KEY is not configured");
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
-
-  const response = await fetch(url, {
+  const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 4096,
-      },
+      model: "gpt-5.6-luna",
+      input: prompt,
     }),
   });
 
   if (!response.ok) {
     const errorBody = await response.text();
-    throw new Error(`Gemini API error (${response.status}): ${errorBody}`);
+    throw new Error(
+      `OpenAI API error (${response.status}): ${errorBody}`
+    );
   }
 
   const data = (await response.json()) as {
-    candidates?: Array<{
-      content?: {
-        parts?: Array<{ text?: string }>;
-      };
+    output?: Array<{
+      content?: Array<{
+        type?: string;
+        text?: string;
+      }>;
     }>;
   };
 
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) {
-    throw new Error("Gemini returned an empty response");
+  let text = "";
+
+  for (const output of data.output ?? []) {
+    for (const content of output.content ?? []) {
+      if (content.type === "output_text" && content.text) {
+        text += content.text;
+      }
+    }
   }
 
-  // Extract JSON from the response (may be wrapped in markdown code blocks).
+  if (!text) {
+    throw new Error("OpenAI returned an empty response");
+  }
+
   const jsonMatch = text.match(/\{[\s\S]*\}/);
+
   if (!jsonMatch) {
-    throw new Error("Gemini response did not contain valid JSON");
+    throw new Error("OpenAI response did not contain valid JSON");
   }
 
   const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
@@ -65,7 +71,9 @@ async function callGemini(prompt: string): Promise<GeminiInsightResult> {
     typeof parsed.summary !== "string" ||
     typeof parsed.content !== "string"
   ) {
-    throw new Error("Gemini response missing required fields (title, summary, content)");
+    throw new Error(
+      "OpenAI response missing required fields (title, summary, content)"
+    );
   }
 
   return {
@@ -74,7 +82,6 @@ async function callGemini(prompt: string): Promise<GeminiInsightResult> {
     content: parsed.content,
   };
 }
-
 // ---------------------------------------------------------------------------
 // Build the prompt for Gemini
 // ---------------------------------------------------------------------------
@@ -193,15 +200,19 @@ Return ONLY a JSON object with this exact structure (no markdown, no explanation
 // ---------------------------------------------------------------------------
 // Inngest function: generate-insight
 // ---------------------------------------------------------------------------
+type StepRunner = {
+  run<T>(name: string, fn: () => Promise<T>): Promise<T>;
+};
 
-export const generateInsightFunction = inngest.createFunction(
-  {
-    id: "generate-insight",
-    triggers: [{ event: "ai/insight-generate" }],
-    retries: 3,
+const directStep: StepRunner = {
+  async run<T>(_name: string, fn: () => Promise<T>): Promise<T> {
+    return await fn();
   },
-  async ({ event, step }) => {
-    const { insightId } = event.data;
+};
+export async function generateInsightDirect(
+  insightId: string
+) {
+  const step = directStep;
 
     // Step 1: Fetch the insight document and determine scope.
     const insightData = await step.run("fetch-insight", async () => {
@@ -632,7 +643,7 @@ export const generateInsightFunction = inngest.createFunction(
         feedback,
       });
 
-      return callGemini(prompt);
+      return callOpenAI(prompt);
     });
 
     // Step 8: Save results to the insight document and notify the user.
@@ -658,11 +669,10 @@ export const generateInsightFunction = inngest.createFunction(
       }
     });
 
-    return {
-      insightId,
-      title: aiResult.title,
-      summary: aiResult.summary,
-      status: "completed",
-    };
-  }
-);
+      return {
+    insightId,
+    title: aiResult.title,
+    summary: aiResult.summary,
+    status: "completed",
+  };
+}

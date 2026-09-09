@@ -1,86 +1,88 @@
-import { inngest } from "../client.js";
-
 // ---------------------------------------------------------------------------
-// Gemini API helper
+// OpenAI API helper
 // ---------------------------------------------------------------------------
 
-interface GeminiRating {
+interface AIRating {
   category: string;
   score: number;
   comment: string;
 }
 
-interface GeminiReviewResult {
+interface AIReviewResult {
   overallScore: number;
   strengths: string;
   improvements: string;
   summary: string;
 }
 
-/**
- * Calls the Gemini API to generate a structured performance review.
- * Returns parsed JSON or throws on failure.
- */
-async function callGemini(prompt: string): Promise<GeminiReviewResult> {
-  const apiKey = process.env.GEMINI_API_KEY;
+async function callOpenAI(prompt: string): Promise<AIReviewResult> {
+  const apiKey = process.env.OPENAI_API_KEY;
+
   if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is not configured");
+    throw new Error("OPENAI_API_KEY is not configured");
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
-
-  const response = await fetch(url, {
+  const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 2048,
-      },
+      model: "gpt-5.6-luna",
+      input: prompt,
     }),
   });
 
   if (!response.ok) {
     const errorBody = await response.text();
-    throw new Error(`Gemini API error (${response.status}): ${errorBody}`);
+    throw new Error(
+      `OpenAI API error (${response.status}): ${errorBody}`
+    );
   }
 
   const data = (await response.json()) as {
-    candidates?: Array<{
-      content?: {
-        parts?: Array<{ text?: string }>;
-      };
+    output?: Array<{
+      content?: Array<{
+        type?: string;
+        text?: string;
+      }>;
     }>;
   };
 
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) {
-    throw new Error("Gemini returned an empty response");
+  let text = "";
+
+  for (const output of data.output ?? []) {
+    for (const content of output.content ?? []) {
+      if (content.type === "output_text" && content.text) {
+        text += content.text;
+      }
+    }
   }
 
-  // Extract JSON from the response (may be wrapped in markdown code blocks).
+  if (!text) {
+    throw new Error("OpenAI returned an empty response");
+  }
+
   const jsonMatch = text.match(/\{[\s\S]*\}/);
+
   if (!jsonMatch) {
-    throw new Error("Gemini response did not contain valid JSON");
+    throw new Error("OpenAI response did not contain valid JSON");
   }
 
   const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
 
-  // Validate required fields.
   if (
     typeof parsed.overallScore !== "number" ||
     typeof parsed.strengths !== "string" ||
     typeof parsed.improvements !== "string" ||
     typeof parsed.summary !== "string"
   ) {
-    throw new Error("Gemini response missing required fields");
+    throw new Error("OpenAI response missing required fields");
   }
 
-  const overallScore = Math.min(5, Math.max(1, parsed.overallScore));
-
   return {
-    overallScore,
+    overallScore: Math.min(5, Math.max(1, parsed.overallScore)),
     strengths: parsed.strengths,
     improvements: parsed.improvements,
     summary: parsed.summary,
@@ -95,7 +97,7 @@ function buildReviewPrompt(params: {
   employeeName: string;
   department: string;
   period: string;
-  ratings: GeminiRating[];
+  ratings: AIRating[];
   previousReviews: string;
 }): string {
   const ratingsText = params.ratings
@@ -139,14 +141,20 @@ Rules:
 // Inngest function: generate-review
 // ---------------------------------------------------------------------------
 
-export const generateReviewFunction = inngest.createFunction(
-  {
-    id: "generate-review",
-    triggers: [{ event: "performance/generate-review" }],
-    retries: 3,
+type StepRunner = {
+  run<T>(name: string, fn: () => Promise<T>): Promise<T>;
+};
+
+const directStep: StepRunner = {
+  async run<T>(_name: string, fn: () => Promise<T>): Promise<T> {
+    return await fn();
   },
-  async ({ event, step }) => {
-    const { reviewId } = event.data;
+};
+
+export async function generateReviewDirect(
+  reviewId: string
+) {
+  const step = directStep;
 
     // Step 1: Fetch the review document with populated references.
     const reviewData = await step.run("fetch-review", async () => {
@@ -232,7 +240,7 @@ export const generateReviewFunction = inngest.createFunction(
         previousReviews,
       });
 
-      return callGemini(prompt);
+      return callOpenAI(prompt);
     });
 
     // Step 4: Update the review document with AI-generated content.
@@ -294,10 +302,9 @@ export const generateReviewFunction = inngest.createFunction(
       );
     });
 
-    return {
-      reviewId,
-      overallScore: aiResult.overallScore,
-      status: "pending_acknowledgment",
-    };
-  },
-);
+      return {
+    reviewId,
+    overallScore: aiResult.overallScore,
+    status: "pending_acknowledgment",
+  };
+}
