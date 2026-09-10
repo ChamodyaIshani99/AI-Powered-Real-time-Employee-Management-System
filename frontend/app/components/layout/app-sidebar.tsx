@@ -51,7 +51,6 @@ interface NavItem {
 
 interface NavGroup {
   label: string;
-  /** Omit for links every role sees. */
   roles?: Role[];
   items: NavItem[];
 }
@@ -103,12 +102,6 @@ function initials(name: string) {
     .toUpperCase();
 }
 
-/**
- * App sidebar: role-gated navigation + user card + sign out.
- *
- * `RequireAuth` gates the layout before this renders, so the current user is
- * always available here.
- */
 export function AppSidebar() {
   const { data: user } = useCurrentUser();
   const { pathname } = useLocation();
@@ -122,26 +115,33 @@ export function AppSidebar() {
   );
 
   return (
-    <Sidebar collapsible="icon">
-      <SidebarHeader>
+    <Sidebar
+      collapsible="icon"
+      className="border-r-0 bg-gradient-to-b from-slate-900 to-slate-800 shadow-2xl shadow-black/20 [&>div]:bg-transparent"
+    >
+      <SidebarHeader className="border-b border-white/5 pb-4">
         <Link
           to="/dashboard"
-          className="flex items-center gap-2.5 px-1 py-1 outline-none rounded-lg focus-visible:ring-2 ring-sidebar-ring group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+          className="flex items-center gap-3 px-1 py-1 outline-none rounded-xl focus-visible:ring-2 ring-white/30 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
         >
-          <BrandMark className="size-8 rounded-lg" />
+          <BrandMark className="size-9 rounded-xl shadow-lg shadow-indigo-500/20" />
           <span className="grid leading-tight group-data-[collapsible=icon]:hidden">
-            <span className="font-heading text-sm font-semibold">EMS</span>
-            <span className="text-[0.68rem] text-sidebar-foreground/60">
-              Employee Management System
+            <span className="font-heading text-base font-bold tracking-tight text-white">
+              EMS
+            </span>
+            <span className="text-[0.6rem] font-medium uppercase tracking-wider text-indigo-300/70">
+              Employee Management
             </span>
           </span>
         </Link>
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent className="px-2 py-2">
         {groups.map((group) => (
-          <SidebarGroup key={group.label}>
-            <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+          <SidebarGroup key={group.label} className="mb-3">
+            <SidebarGroupLabel className="mb-1 text-[0.6rem] font-semibold uppercase tracking-widest text-white/40">
+              {group.label}
+            </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {group.items.map((item) => (
@@ -150,9 +150,20 @@ export function AppSidebar() {
                       render={<Link to={item.to} />}
                       isActive={pathname === item.to}
                       tooltip={item.title}
-                      className="rounded-lg group-data-[collapsible=icon]:justify-center before:absolute before:top-1/2 before:left-0 before:h-4 before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-sidebar-primary before:opacity-0 before:transition-opacity data-active:before:opacity-100 group-data-[collapsible=icon]:before:hidden"
+                      className={`
+                        relative rounded-xl px-3 py-1.5 text-sm font-medium text-white/70
+                        transition-all duration-200 ease-out
+                        hover:bg-white/10 hover:text-white
+                        data-active:bg-gradient-to-r data-active:from-indigo-500 data-active:to-purple-600
+                        data-active:text-white data-active:shadow-lg data-active:shadow-indigo-500/25
+                        group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0
+                        before:absolute before:left-0 before:top-1/2 before:h-5 before:w-1 before:-translate-y-1/2
+                        before:rounded-r-full before:bg-white before:opacity-0 before:transition-opacity
+                        data-active:before:opacity-100
+                        group-data-[collapsible=icon]:before:hidden
+                      `}
                     >
-                      <item.icon />
+                      <item.icon className="size-4.5 shrink-0" />
                       <span>{item.title}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -163,28 +174,44 @@ export function AppSidebar() {
         ))}
       </SidebarContent>
 
-      <SidebarFooter>
-        <div className="flex items-center gap-2.5 rounded-lg border border-sidebar-border bg-sidebar-accent/40 px-2.5 py-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-0 group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:py-0">
-          <Avatar className="size-8">
-            <AvatarFallback>{initials(user.name)}</AvatarFallback>
+      <SidebarFooter className="border-t border-white/5 pt-4">
+        <div
+          className={`
+            flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2.5
+            backdrop-blur-sm transition-all
+            group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:bg-transparent
+            group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:py-0
+          `}
+        >
+          <Avatar className="size-9 ring-2 ring-indigo-400/50 ring-offset-2 ring-offset-slate-900">
+            <AvatarFallback className="bg-gradient-to-br from-indigo-500 to-purple-600 text-sm font-bold text-white">
+              {initials(user.name)}
+            </AvatarFallback>
           </Avatar>
           <span className="grid min-w-0 flex-1 leading-tight group-data-[collapsible=icon]:hidden">
-            <span className="truncate text-sm font-medium">{user.name}</span>
-            <span className="truncate text-xs text-sidebar-foreground/60">
+            <span className="truncate text-sm font-semibold text-white">
+              {user.name}
+            </span>
+            <span className="truncate text-xs text-indigo-300/70">
               {ROLE_LABELS[user.role]}
             </span>
           </span>
         </div>
+
         <Button
           variant="ghost"
           onClick={() => logout.mutate(undefined, { onSuccess: () => navigate("/") })}
           disabled={logout.isPending}
-          className="w-full justify-start gap-2 px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+          className={`
+            mt-2 w-full justify-start gap-2 rounded-xl px-3 py-2 text-sm font-medium text-white/70
+            transition-all duration-200 hover:bg-white/10 hover:text-white
+            group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0
+          `}
         >
           {logout.isPending ? (
-            <LoaderCircle className="animate-spin" />
+            <LoaderCircle className="size-4.5 animate-spin" />
           ) : (
-            <LogOut />
+            <LogOut className="size-4.5" />
           )}
           <span className="group-data-[collapsible=icon]:hidden">
             {logout.isPending ? "Signing out…" : "Sign out"}
